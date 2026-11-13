@@ -1,25 +1,25 @@
 # Los Premios — votación por categorías
 
-Sitio estático (HTML + Tailwind + supabase-js) con Supabase de backend. Los alumnos votan una vez por categoría (incluido el "Oro") y al cerrar se abren los "sobres" con confeti.
+Sitio estático (HTML + Tailwind + supabase-js) con Supabase de backend. Los alumnos votan una vez por categoría (incluido el "Oro") y al cerrar se abren los "sobres" con confeti. Funciona con la cantidad de equipos que haya en el aula (15, 20, los que sean).
 
 ## Puesta en marcha
 
 1. **Supabase**: creá un proyecto en [supabase.com](https://supabase.com).
 2. **SQL**: en *SQL Editor* pegá y corré `schema.sql`. Antes cambiá `CAMBIAME` (contraseña del admin).
-3. **Claves**: en *Project Settings → API* copiá `Project URL` y `anon public key` y pegalas en `SUPABASE_URL` / `SUPABASE_ANON_KEY` al principio del script de `index.html` **y** `admin.html`.
+3. **Claves**: en *Project Settings → API Keys* copiá `Project URL` y la clave `anon` y pegalas en `SUPABASE_URL` / `SUPABASE_ANON_KEY` al principio del script de `index.html` **y** `admin.html`.
 4. **GitHub**: subí la carpeta a un repo.
 5. **Vercel**: *Add New → Project* → importá el repo → *Deploy* (sin build).
 
-## Compartirlo con tu novia
+## Uso (sin tocar código)
 
-Pasale dos cosas: la URL de admin (`https://tu-sitio.vercel.app/admin.html`) y la contraseña. Desde ahí ella puede, sin tocar código:
+Entrar a `https://tu-sitio.vercel.app/admin.html` con la contraseña. Desde ahí:
 
-- **Editar categorías y nominados** (nombre, integrantes, descripción, foto por link), agregar y borrar.
-- Marcar una categoría como **Oro** (va última y con confeti dorado).
+- **Equipos**: se cargan una sola vez y compiten en todas las categorías. Hay un cuadro para pegar la lista completa de una (`Nombre | Integrantes | Descripción | Link de imagen`, una línea por equipo) o cargarlos de a uno.
+- **Categorías**: editar, agregar o borrar. La marcada como **Oro** va última y con confeti dorado.
 - **Abrir / pausar / cerrar** la votación y ver resultados en vivo.
-- Ver y mostrar el **QR** con el link para los alumnos (clic derecho → guardar imagen para proyectarlo o imprimirlo).
+- **QR** con el link para los alumnos (clic derecho → guardar imagen).
 
-Conviene que edite todo *antes* de abrir la votación: si borra un nominado, se borran sus votos.
+Conviene terminar de editar antes de abrir la votación: si se borra un equipo o categoría, se borran sus votos.
 
 ## Cómo es el evento
 
