@@ -38,6 +38,7 @@ input,textarea{border:1px solid #cbd5e1;border-radius:.75rem;padding:.5rem .75re
         <button data-s="pending" class="st btn bg-slate-200">Pausar</button>
       </div>
       <button id="cer" class="hidden btn w-full mt-2 bg-amber-500 text-white">🎬 Iniciar ceremonia de premios</button>
+      <button id="reset" class="btn w-full mt-2 bg-rose-100 text-rose-700">🧹 Reiniciar votos (borra todos y vuelve a empezar)</button>
       <div class="mt-5 flex items-center gap-4 flex-wrap">
         <div id="qr" class="p-2 bg-white border rounded-xl"></div>
         <div class="text-sm"><p class="font-semibold">Compartí este link / QR con los alumnos</p><a id="link" class="text-indigo-600 break-all underline" target="_blank"></a></div>
@@ -185,6 +186,13 @@ document.querySelectorAll('.st').forEach(b => b.onclick = async () => {
   if (b.dataset.s === 'closed') startCeremony();
 });
 $('cer').onclick = () => startCeremony();
+$('reset').onclick = async () => {
+  if (!confirm('¿Borrar TODOS los votos y reiniciar la votación? Los equipos y categorías no se tocan. No se puede deshacer.')) return;
+  const { error } = await rpc('admin_reset_votes');
+  if (error) return alert(error.message);
+  if (!$('stage').classList.contains('hidden')) closeStage();
+  await poll(); alert('Listo: votos borrados. La votación quedó sin abrir; tocá "Abrir" para empezar de nuevo.');
+};
 
 
 // ============ CEREMONIA ============

@@ -32,15 +32,15 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let cats = [], teams = [], status = 'pending', revealed = 0, prevRevealed = null, results = {};
+let cats = [], teams = [], status = 'pending', revealed = 0, round = 0, prevRevealed = null, results = {};
 let step = -1, choices = {}, legajo = localStorage.getItem('legajo') || '';
 
 async function load() {
   const [c, t, s] = await Promise.all([
     db.from('categories').select('*').order('id'), db.from('teams').select('*').order('id'),
-    db.from('settings').select('status,revealed').single()]);
+    db.from('settings').select('status,revealed,round').single()]);
   cats = (c.data || []).sort((a, b) => a.is_gold - b.is_gold || a.id - b.id);   // el Oro va al final
-  teams = t.data || []; status = s.data?.status || 'pending'; revealed = s.data?.revealed || 0;
+  teams = t.data || []; status = s.data?.status || 'pending'; revealed = s.data?.revealed || 0; round = s.data?.round || 0;
   if (status === 'closed') { const r = await db.rpc('get_results'); results = {}; (r.data || []).forEach(x => results[x.category_id + '_' + x.team_id] = Number(x.votes)); }
   render();
 }
@@ -51,7 +51,7 @@ function render() {
   const app = $('app');
   if (status === 'pending') { $('sub').textContent = 'Todavía no abrió la votación'; app.innerHTML = msg('⏳', 'Volvé en un ratito', 'Apenas abra la votación vas a poder elegir.'); }
   else if (status === 'closed') { $('sub').textContent = 'Ceremonia de premios 🎬'; renderResults(); }
-  else if (localStorage.getItem('voted')) { $('sub').textContent = '¡Gracias por participar!'; app.innerHTML = msg('🎉', '¡Votos registrados!', 'Los ganadores se revelan cuando cierre la votación.'); }
+  else if (localStorage.getItem('voted') === String(round)) { $('sub').textContent = '¡Gracias por participar!'; app.innerHTML = msg('🎉', '¡Votos registrados!', 'Los ganadores se revelan cuando cierre la votación.'); }
   else if (step < 0) {
     $('sub').textContent = 'Votá en cada categoría. Un voto por categoría.';
     app.innerHTML = `<form id="intro" class="bg-white rounded-3xl shadow-lg p-6 fade">
@@ -87,7 +87,7 @@ async function submit() {
   if (errs.some(e => e.code === '42501')) { alert('La votación no está abierta.'); return load(); }
   if (errs.length === rows.length && rows.length && errs.every(e => e.code === '23505')) alert('¡Ya votaste con este legajo! Gracias 😉');
   else if (errs.some(e => e.code !== '23505')) { alert('No pudimos registrar algún voto. Probá de nuevo.'); return renderStep(); }
-  localStorage.setItem('voted', '1'); confetti({ particleCount: 90, spread: 70, origin: { y: .7 } }); render();
+  localStorage.setItem('voted', String(round)); confetti({ particleCount: 90, spread: 70, origin: { y: .7 } }); render();
 }
 
 // Ceremonia: los premios aparecen a medida que el admin los revela

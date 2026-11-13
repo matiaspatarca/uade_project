@@ -18,7 +18,8 @@ create table teams (
 create table settings (
   id     int primary key default 1 check (id = 1),
   status text not null default 'pending' check (status in ('pending','open','closed')),
-  revealed int not null default 0                     -- cuántos premios ya se revelaron en la ceremonia
+  revealed int not null default 0,                    -- cuántos premios ya se revelaron en la ceremonia
+  round    int not null default 0                     -- sube con cada reinicio: los celulares vuelven a poder votar
 );
 insert into settings default values;
 
@@ -88,6 +89,15 @@ language plpgsql security definer set search_path = public as $$
 begin
   perform _check_pw(pw);
   update settings set revealed = greatest(0, n) where id = 1;
+end $$;
+
+-- Reiniciar: borra TODOS los votos y vuelve a empezar (para probar o repetir la votación)
+create function admin_reset_votes(pw text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _check_pw(pw);
+  delete from votes where true;
+  update settings set status = 'pending', revealed = 0, round = round + 1 where id = 1;
 end $$;
 
 -- Crea o edita (si trae id) una categoría o un equipo
