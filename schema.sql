@@ -17,7 +17,8 @@ create table teams (
 
 create table settings (
   id     int primary key default 1 check (id = 1),
-  status text not null default 'pending' check (status in ('pending','open','closed'))
+  status text not null default 'pending' check (status in ('pending','open','closed')),
+  revealed int not null default 0                     -- cuántos premios ya se revelaron en la ceremonia
 );
 insert into settings default values;
 
@@ -48,12 +49,14 @@ create policy "ver estado"     on settings   for select using (true);
 create policy "votar" on votes for insert
   with check (exists (select 1 from settings where status = 'open'));
 
--- Resultados públicos: solo con la votación cerrada
+-- Resultados públicos: solo con la votación cerrada y solo de los premios ya revelados
 create function get_results() returns table (category_id int, team_id int, votes bigint)
 language sql security definer set search_path = public as $$
-  select c.id, t.id, count(v.id) from categories c cross join teams t
+  with ord as (select id, row_number() over (order by is_gold, id) rn from categories)
+  select c.id, t.id, count(v.id)
+  from categories c join ord on ord.id = c.id cross join teams t
   left join votes v on v.category_id = c.id and v.team_id = t.id
-  where (select status from settings) = 'closed'
+  where (select status from settings) = 'closed' and ord.rn <= (select revealed from settings)
   group by c.id, t.id;
 $$;
 
@@ -76,7 +79,15 @@ create function admin_set_status(pw text, new_status text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   perform _check_pw(pw);
-  update settings set status = new_status where id = 1;
+  update settings set status = new_status, revealed = 0 where id = 1;
+end $$;
+
+-- Ceremonia: el admin va revelando premio por premio
+create function admin_set_revealed(pw text, n int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  perform _check_pw(pw);
+  update settings set revealed = greatest(0, n) where id = 1;
 end $$;
 
 -- Crea o edita (si trae id) una categoría o un equipo

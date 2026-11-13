@@ -9,8 +9,12 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
 <style>body{font-family:Inter,system-ui,sans-serif}.bar{transition:width .8s ease}
 input,textarea{border:1px solid #cbd5e1;border-radius:.75rem;padding:.5rem .75rem;width:100%;font-size:.9rem}
+@keyframes rise{from{transform:scaleY(0);opacity:0}to{transform:none;opacity:1}}.rise{transform-origin:bottom;animation:rise .8s cubic-bezier(.2,.8,.2,1) both}
+@keyframes fadein{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}.fadein{animation:fadein .6s ease both}
+@keyframes pop{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}.pop{animation:pop .6s ease both}
 .btn{padding:.5rem 1rem;border-radius:.75rem;font-weight:600;font-size:.85rem}</style>
 </head>
 <body class="min-h-screen bg-slate-100 text-slate-800 p-4">
@@ -33,6 +37,7 @@ input,textarea{border:1px solid #cbd5e1;border-radius:.75rem;padding:.5rem .75re
         <button data-s="closed" class="st btn bg-rose-500 text-white">Cerrar y revelar</button>
         <button data-s="pending" class="st btn bg-slate-200">Pausar</button>
       </div>
+      <button id="cer" class="hidden btn w-full mt-2 bg-amber-500 text-white">🎬 Iniciar ceremonia de premios</button>
       <div class="mt-5 flex items-center gap-4 flex-wrap">
         <div id="qr" class="p-2 bg-white border rounded-xl"></div>
         <div class="text-sm"><p class="font-semibold">Compartí este link / QR con los alumnos</p><a id="link" class="text-indigo-600 break-all underline" target="_blank"></a></div>
@@ -78,6 +83,9 @@ input,textarea{border:1px solid #cbd5e1;border-radius:.75rem;padding:.5rem .75re
   </section>
 </main>
 
+<!-- Ceremonia (pantalla completa, para proyectar) -->
+<div id="stage" class="hidden fixed inset-0 z-50 flex flex-col items-center justify-center bg-gradient-to-br from-slate-900 via-indigo-950 to-violet-950 cursor-pointer select-none overflow-hidden"></div>
+
 <script>
 // ============ CONFIGURACIÓN ============
 const SUPABASE_URL      = "https://iwtidxehmfpgdpgyioik.supabase.co";   // <<< PEGAR ACÁ
@@ -104,6 +112,7 @@ async function poll() {
   const v = Object.fromEntries(data.map(r => [r.category_id + '_' + r.team_id, Number(r.votes)]));
   $('total').textContent = data.reduce((a, r) => a + Number(r.votes), 0) + ' votos';
   const closed = s.data.status === 'closed';
+  $('cer').classList.toggle('hidden', !closed);
   $('final').classList.toggle('hidden', !closed);
   if (closed) {
     const url = location.href.replace(/admin\.html.*$/, '');
@@ -171,8 +180,66 @@ $('share').onclick = async () => {
   else $('copy').onclick();
 };
 document.querySelectorAll('.st').forEach(b => b.onclick = async () => {
-  if (b.dataset.s === 'closed' && !confirm('¿Cerrar la votación? Todos podrán abrir los sobres con los ganadores.')) return;
-  await rpc('admin_set_status', { new_status: b.dataset.s }); poll();
+  if (b.dataset.s === 'closed' && !confirm('¿Cerrar la votación y empezar la ceremonia? Los premios se revelan de a uno, con cada click.')) return;
+  await rpc('admin_set_status', { new_status: b.dataset.s }); await poll();
+  if (b.dataset.s === 'closed') startCeremony();
+});
+$('cer').onclick = () => startCeremony();
+
+
+// ============ CEREMONIA ============
+let CER = null;
+const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+async function startCeremony() {
+  const { data } = await rpc('admin_results'), res = {};
+  (data || []).forEach(r => res[r.category_id + '_' + r.team_id] = Number(r.votes));
+  CER = { i: 0, phase: 0, res, sent: 0 };
+  await rpc('admin_set_revealed', { n: 0 });
+  $('stage').classList.remove('hidden'); drawStage();
+}
+const top3 = c => teams.map(n => ({ ...n, v: CER.res[c.id + '_' + n.id] || 0 })).sort((a, b) => b.v - a.v || a.name.localeCompare(b.name)).slice(0, 3);
+function drawStage() {
+  const s = $('stage'), { i, phase } = CER;
+  if (i >= cats.length) return s.innerHTML = `<div class="text-center pop px-6"><div class="text-7xl">🎉</div><h2 class="text-4xl sm:text-6xl font-extrabold text-white mt-4">¡Felicitaciones a todos!</h2>
+    <p class="text-white/70 text-xl mt-3">Gracias por participar</p><button data-close class="btn bg-white text-slate-900 mt-8 text-base">Cerrar ceremonia</button></div>`;
+  const c = cats[i], gold = c.is_gold;
+  if (phase === 0) return s.innerHTML = `<p class="text-white/60 tracking-widest text-sm">PREMIO ${i + 1} DE ${cats.length}</p>
+    <h2 class="text-4xl sm:text-6xl font-extrabold text-center mt-4 px-6 pop ${gold ? 'text-amber-400' : 'text-white'}">${esc(c.name)}</h2>
+    <p class="text-white/70 text-2xl mt-8 animate-pulse">Y el ganador es…</p>
+    <p class="absolute bottom-6 text-white/40 text-sm">Click o barra espaciadora para continuar · Esc para salir</p>`;
+  const p = top3(c);
+  if (!p.length || !p[0].v) return s.innerHTML = `<h2 class="text-3xl font-extrabold text-white text-center px-6">${esc(c.name)}</h2><p class="text-white/70 text-xl mt-4">Sin votos en esta categoría</p>`;
+  const H = { 1: '12rem', 2: '8.5rem', 3: '6rem' }, D = { 3: 0, 2: .7, 1: 1.5 };
+  const BG = { 1: 'from-amber-300 to-amber-500', 2: 'from-slate-200 to-slate-400', 3: 'from-orange-300 to-orange-600' };
+  const cols = [[p[1], 2], [p[0], 1], [p[2], 3]].filter(([t]) => t).map(([t, k]) => `
+    <div class="flex flex-col items-center w-28 sm:w-44">
+      <div class="text-center mb-2 fadein" style="animation-delay:${D[k] + .5}s">
+        ${t.image_url ? `<img src="${esc(t.image_url)}" class="w-16 h-16 sm:w-24 sm:h-24 rounded-full object-cover mx-auto border-4 ${k === 1 ? 'border-amber-400' : 'border-white/40'}" alt="">` : ''}
+        <p class="text-white font-bold leading-tight mt-1 text-sm sm:text-xl">${esc(t.name)}</p><p class="text-white/60 text-xs sm:text-sm">${t.v} ${t.v === 1 ? 'voto' : 'votos'}</p></div>
+      <div class="rise w-full rounded-t-2xl flex items-start justify-center pt-2 text-4xl bg-gradient-to-b ${BG[k]}" style="height:${H[k]};animation-delay:${D[k]}s">${MEDAL[k]}</div></div>`).join('');
+  const tie = p[1] && p[0].v === p[1].v ? `<p class="text-amber-300 mt-3 fadein" style="animation-delay:2.5s">🤝 ¡Empate arriba! Se muestran en orden alfabético</p>` : '';
+  s.innerHTML = `<h2 class="text-2xl sm:text-4xl font-extrabold text-center mb-8 px-6 ${gold ? 'text-amber-400' : 'text-white'}">${esc(c.name)}</h2>
+    <div class="flex items-end justify-center gap-2 sm:gap-4 px-2">${cols}</div>${tie}
+    <p class="absolute bottom-6 text-white/40 text-sm">Click para el siguiente premio</p>`;
+}
+function advance() {
+  if (!CER || CER.i >= cats.length) return;
+  if (CER.phase === 0) {
+    CER.phase = 1; drawStage();
+    const c = cats[CER.i], n = CER.i + 1;
+    setTimeout(() => {
+      if (!CER) return;
+      confetti(c.is_gold ? { particleCount: 400, spread: 140, startVelocity: 60, origin: { y: .6 }, colors: ['#fbbf24', '#f59e0b', '#fff7ed'] } : { particleCount: 160, spread: 90, origin: { y: .6 } });
+      CER.sent = Math.max(CER.sent, n); rpc('admin_set_revealed', { n: CER.sent });   // los celulares lo muestran recién acá
+    }, 2200);
+  } else { CER.i++; CER.phase = 0; drawStage(); if (CER.i >= cats.length) confetti({ particleCount: 250, spread: 160, origin: { y: .4 } }); }
+}
+const closeStage = () => { $('stage').classList.add('hidden'); CER = null; poll(); };
+$('stage').onclick = e => e.target.closest('[data-close]') ? closeStage() : advance();
+document.addEventListener('keydown', e => {
+  if ($('stage').classList.contains('hidden')) return;
+  if (e.key === 'Escape') closeStage();
+  else if ([' ', 'Enter', 'ArrowRight'].includes(e.key)) { e.preventDefault(); advance(); }
 });
 
 $('login').onsubmit = async e => {

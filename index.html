@@ -32,15 +32,15 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let cats = [], teams = [], status = 'pending', results = {};
+let cats = [], teams = [], status = 'pending', revealed = 0, prevRevealed = null, results = {};
 let step = -1, choices = {}, legajo = localStorage.getItem('legajo') || '';
 
 async function load() {
   const [c, t, s] = await Promise.all([
     db.from('categories').select('*').order('id'), db.from('teams').select('*').order('id'),
-    db.from('settings').select('status').single()]);
+    db.from('settings').select('status,revealed').single()]);
   cats = (c.data || []).sort((a, b) => a.is_gold - b.is_gold || a.id - b.id);   // el Oro va al final
-  teams = t.data || []; status = s.data?.status || 'pending';
+  teams = t.data || []; status = s.data?.status || 'pending'; revealed = s.data?.revealed || 0;
   if (status === 'closed') { const r = await db.rpc('get_results'); results = {}; (r.data || []).forEach(x => results[x.category_id + '_' + x.team_id] = Number(x.votes)); }
   render();
 }
@@ -50,7 +50,7 @@ const msg = (e, t, d) => `<div class="text-center bg-white rounded-3xl shadow-lg
 function render() {
   const app = $('app');
   if (status === 'pending') { $('sub').textContent = 'Todavía no abrió la votación'; app.innerHTML = msg('⏳', 'Volvé en un ratito', 'Apenas abra la votación vas a poder elegir.'); }
-  else if (status === 'closed') { $('sub').textContent = 'Se abren los sobres 🎬'; renderResults(); }
+  else if (status === 'closed') { $('sub').textContent = 'Ceremonia de premios 🎬'; renderResults(); }
   else if (localStorage.getItem('voted')) { $('sub').textContent = '¡Gracias por participar!'; app.innerHTML = msg('🎉', '¡Votos registrados!', 'Los ganadores se revelan cuando cierre la votación.'); }
   else if (step < 0) {
     $('sub').textContent = 'Votá en cada categoría. Un voto por categoría.';
@@ -90,27 +90,31 @@ async function submit() {
   localStorage.setItem('voted', '1'); confetti({ particleCount: 90, spread: 70, origin: { y: .7 } }); render();
 }
 
-// Resultados: cada categoría es un "sobre" que se revela con un toque
+// Ceremonia: los premios aparecen a medida que el admin los revela
 function renderResults() {
-  $('app').innerHTML = `<div class="space-y-5">${cats.map(c => `
-    <section class="bg-white rounded-3xl shadow-lg p-6 text-center fade">
-      <h2 class="text-xl font-extrabold ${c.is_gold ? 'text-amber-600' : ''}">${esc(c.name)}</h2>
-      <div id="cat${c.id}"><button data-id="${c.id}" class="reveal mt-4 px-6 py-3 rounded-xl ${c.is_gold ? 'bg-gradient-to-r from-amber-400 to-orange-500' : 'bg-indigo-600'} text-white font-bold active:scale-95 transition">🎬 Abrir sobre</button></div>
-    </section>`).join('')}</div>`;
-  document.querySelectorAll('.reveal').forEach(b => b.onclick = () => reveal(cats.find(c => c.id == b.dataset.id)));
+  const done = cats.slice(0, revealed);
+  if (!done.length) { prevRevealed = revealed; return $('app').innerHTML = msg('🎬', '¡Empieza la ceremonia!', 'Mirá la pantalla: los ganadores se revelan de a uno.'); }
+  $('app').innerHTML = `<div class="space-y-5">${done.slice().reverse().map(card).join('')}</div>`;
+  setTimeout(() => document.querySelectorAll('.bar').forEach(b => b.style.width = b.dataset.w + '%'), 50);
+  if (prevRevealed !== null && revealed > prevRevealed) {
+    const gold = done[done.length - 1].is_gold;
+    confetti(gold ? { particleCount: 300, spread: 120, startVelocity: 55, origin: { y: .5 }, colors: ['#fbbf24', '#f59e0b', '#fff7ed'] } : { particleCount: 120, spread: 80, origin: { y: .6 } });
+  }
+  prevRevealed = revealed;
 }
 
-function reveal(c) {
-  const rank = teams.map(n => ({ ...n, v: results[c.id + '_' + n.id] || 0 })).sort((a, b) => b.v - a.v);
-  const total = rank.reduce((a, n) => a + n.v, 0) || 1, w = rank[0], top = rank.slice(0, 5);
-  $(`cat${c.id}`).innerHTML = w ? `<div class="fade text-left">
+function card(c) {
+  const rank = teams.map(n => ({ ...n, v: results[c.id + '_' + n.id] || 0 })).sort((a, b) => b.v - a.v || a.name.localeCompare(b.name));
+  const total = rank.reduce((a, n) => a + n.v, 0) || 1, w = rank[0], top = rank.slice(0, 3);
+  if (!w) return '';
+  return `<section class="bg-white rounded-3xl shadow-lg p-6 fade">
+      <h2 class="text-center text-xl font-extrabold ${c.is_gold ? 'text-amber-600' : ''}">${esc(c.name)}</h2>
       <div class="text-center mt-3"><div class="text-5xl">🥇</div><p class="text-xs font-bold text-amber-600">GANADOR</p>
       ${w.image_url ? `<img src="${esc(w.image_url)}" class="w-full h-40 object-cover rounded-2xl mt-2" alt="">` : ''}
       <h3 class="text-2xl font-extrabold mt-2">${esc(w.name)}</h3><p class="text-slate-500 text-sm">${esc(w.members)}</p></div>
-      <div class="mt-4 space-y-3">${top.map((n, i) => `<div><div class="flex justify-between text-sm font-semibold"><span>${esc(n.name)}</span><span>${n.v} · ${Math.round(n.v / total * 100)}%</span></div>
-        <div class="h-3 bg-slate-100 rounded-full overflow-hidden mt-1"><div class="bar h-full rounded-full ${i ? 'bg-indigo-300' : 'bg-gradient-to-r from-amber-400 to-orange-500'}" style="width:0" data-w="${n.v / total * 100}"></div></div></div>`).join('')}</div></div>` : '<p class="mt-3 text-slate-500">Sin equipos</p>';
-  setTimeout(() => document.querySelectorAll('.bar').forEach(b => b.style.width = b.dataset.w + '%'), 50);
-  confetti(c.is_gold ? { particleCount: 300, spread: 120, startVelocity: 55, origin: { y: .5 }, colors: ['#fbbf24', '#f59e0b', '#fff7ed'] } : { particleCount: 120, spread: 80, origin: { y: .6 } });
+      <div class="mt-4 space-y-3">${top.map((n, i) => `<div><div class="flex justify-between text-sm font-semibold"><span>${['🥇','🥈','🥉'][i]} ${esc(n.name)}</span><span>${n.v} · ${Math.round(n.v / total * 100)}%</span></div>
+        <div class="h-3 bg-slate-100 rounded-full overflow-hidden mt-1"><div class="bar h-full rounded-full ${i ? 'bg-indigo-300' : 'bg-gradient-to-r from-amber-400 to-orange-500'}" style="width:0" data-w="${n.v / total * 100}"></div></div></div>`).join('')}</div>
+    </section>`;
 }
 
 // Realtime: cuando se abre/cierra, todos los celulares se enteran al instante
