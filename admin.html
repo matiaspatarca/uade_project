@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Admin · Premios</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>body{font-family:Inter,system-ui,sans-serif}.bar{transition:width .8s ease}
+input,textarea{border:1px solid #cbd5e1;border-radius:.75rem;padding:.5rem .75rem;width:100%;font-size:.9rem}
+.btn{padding:.5rem 1rem;border-radius:.75rem;font-weight:600;font-size:.85rem}</style>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800 p-4">
+<main class="max-w-2xl mx-auto mt-6 pb-20">
+  <h1 class="text-2xl font-extrabold mb-4">🔐 Panel admin</h1>
+
+  <form id="login" class="bg-white rounded-3xl shadow p-6">
+    <label class="text-sm font-semibold">Contraseña</label>
+    <input id="pw" type="password" required class="mt-1">
+    <p id="err" class="text-rose-600 text-sm mt-2 min-h-5"></p>
+    <button class="btn w-full bg-indigo-600 text-white">Entrar</button>
+  </form>
+
+  <section id="panel" class="hidden space-y-4">
+    <!-- Estado + QR -->
+    <div class="bg-white rounded-3xl shadow p-6">
+      <p class="text-sm text-slate-500">Estado de la votación</p>
+      <p id="status" class="text-2xl font-extrabold mb-3"></p>
+      <div class="grid grid-cols-3 gap-2">
+        <button data-s="open" class="st btn bg-emerald-500 text-white">Abrir</button>
+        <button data-s="closed" class="st btn bg-rose-500 text-white">Cerrar y revelar</button>
+        <button data-s="pending" class="st btn bg-slate-200">Pausar</button>
+      </div>
+      <div class="mt-5 flex items-center gap-4 flex-wrap">
+        <div id="qr" class="p-2 bg-white border rounded-xl"></div>
+        <div class="text-sm"><p class="font-semibold">Compartí este link / QR con los alumnos</p><a id="link" class="text-indigo-600 break-all underline" target="_blank"></a></div>
+      </div>
+    </div>
+
+    <!-- Resultados en vivo -->
+    <div class="bg-white rounded-3xl shadow p-6">
+      <div class="flex justify-between items-baseline mb-3"><h2 class="font-extrabold">Resultados en vivo</h2><span id="total" class="text-sm text-slate-500"></span></div>
+      <div id="live" class="space-y-5"></div>
+    </div>
+
+    <!-- Editor -->
+    <div class="bg-white rounded-3xl shadow p-6">
+      <div class="flex justify-between items-center mb-3"><h2 class="font-extrabold">Editar categorías y nominados</h2>
+        <button id="addcat" class="btn bg-indigo-600 text-white">+ Categoría</button></div>
+      <p class="text-xs text-slate-500 mb-3">Editá los campos y tocá “Guardar”. Imagen: pegá el link de una foto.</p>
+      <div id="editor" class="space-y-3"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+// ============ CONFIGURACIÓN ============
+const SUPABASE_URL      = "https://TU-PROYECTO.supabase.co";   // <<< PEGAR ACÁ
+const SUPABASE_ANON_KEY = "TU-ANON-KEY";                       // <<< PEGAR ACÁ
+// =======================================
+
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const LABEL = { pending: '⏸ Sin abrir', open: '🟢 Abierta', closed: '🔴 Cerrada' };
+let pw = '', cats = [], noms = [];
+
+const rpc = (fn, args) => db.rpc(fn, { pw, ...args });
+
+async function loadData() {
+  const [c, n] = await Promise.all([db.from('categories').select('*').order('id'), db.from('nominees').select('*').order('id')]);
+  cats = (c.data || []).sort((a, b) => a.is_gold - b.is_gold || a.id - b.id); noms = n.data || [];
+  renderEditor(); poll();
+}
+
+async function poll() {
+  const [{ data, error }, s] = await Promise.all([rpc('admin_results'), db.from('settings').select('status').single()]);
+  if (error) return;
+  $('status').textContent = LABEL[s.data.status];
+  const v = Object.fromEntries(data.map(r => [r.nominee_id, Number(r.votes)]));
+  $('total').textContent = data.reduce((a, r) => a + Number(r.votes), 0) + ' votos';
+  $('live').innerHTML = cats.map(c => {
+    const l = noms.filter(n => n.category_id === c.id).map(n => ({ ...n, v: v[n.id] || 0 })).sort((a, b) => b.v - a.v);
+    const t = l.reduce((a, n) => a + n.v, 0);
+    return `<div><p class="font-bold mb-1">${esc(c.name)}</p>${l.map(n => `<div class="mb-2"><div class="flex justify-between text-sm"><span>${esc(n.name)}</span><span>${n.v} · ${t ? Math.round(n.v / t * 100) : 0}%</span></div>
+      <div class="h-2.5 bg-slate-100 rounded-full overflow-hidden"><div class="bar h-full bg-indigo-500" style="width:${t ? n.v / t * 100 : 0}%"></div></div></div>`).join('') || '<p class="text-sm text-slate-400">Sin nominados</p>'}</div>`;
+  }).join('');
+}
+
+function renderEditor() {
+  const f = (name, val, ph) => `<input name="${name}" value="${esc(val)}" placeholder="${ph}" class="mb-2">`;
+  $('editor').innerHTML = cats.map(c => `
+    <details class="border rounded-2xl p-3" open>
+      <summary class="font-bold cursor-pointer">${c.is_gold ? '🏆 ' : ''}${esc(c.name)}</summary>
+      <form class="cat mt-3" data-id="${c.id}">
+        ${f('name', c.name, 'Nombre de la categoría')}
+        <label class="text-sm flex items-center gap-2 mb-2"><input type="checkbox" name="is_gold" ${c.is_gold ? 'checked' : ''} style="width:auto"> Es el “Oro” (se revela al final)</label>
+        <button class="btn bg-indigo-600 text-white">Guardar</button>
+        <button type="button" data-del="categories" data-id="${c.id}" class="btn bg-rose-100 text-rose-700">Borrar categoría</button>
+      </form>
+      <div class="mt-3 space-y-3">${noms.filter(n => n.category_id === c.id).map(n => `
+        <form class="nom bg-slate-50 rounded-xl p-3" data-id="${n.id}" data-cat="${c.id}">
+          ${f('name', n.name, 'Nombre del proyecto')}${f('members', n.members, 'Integrantes')}
+          <textarea name="description" rows="2" placeholder="Descripción corta" class="mb-2">${esc(n.description)}</textarea>
+          ${f('image_url', n.image_url, 'URL de la imagen')}
+          <button class="btn bg-indigo-600 text-white">Guardar</button>
+          <button type="button" data-del="nominees" data-id="${n.id}" class="btn bg-rose-100 text-rose-700">Borrar</button>
+        </form>`).join('')}
+        <button type="button" data-addnom="${c.id}" class="btn bg-slate-200">+ Nominado</button>
+      </div>
+    </details>`).join('');
+}
+
+async function act(promise) { const { error } = await promise; if (error) return alert(error.message); loadData(); }
+
+$('editor').addEventListener('submit', e => {
+  e.preventDefault(); const form = e.target, d = Object.fromEntries(new FormData(form));
+  if (form.classList.contains('cat')) act(rpc('admin_upsert', { tbl: 'categories', row: { id: +form.dataset.id, name: d.name, is_gold: !!d.is_gold } }));
+  else act(rpc('admin_upsert', { tbl: 'nominees', row: { id: +form.dataset.id, category_id: +form.dataset.cat, ...d } }));
+});
+$('editor').addEventListener('click', e => {
+  const t = e.target;
+  if (t.dataset.del && confirm('¿Borrar? También se borran sus votos.')) act(rpc('admin_delete', { tbl: t.dataset.del, rid: +t.dataset.id }));
+  if (t.dataset.addnom) act(rpc('admin_upsert', { tbl: 'nominees', row: { category_id: +t.dataset.addnom, name: 'Nuevo nominado' } }));
+});
+$('addcat').onclick = () => act(rpc('admin_upsert', { tbl: 'categories', row: { name: 'Nueva categoría', is_gold: false } }));
+document.querySelectorAll('.st').forEach(b => b.onclick = async () => {
+  if (b.dataset.s === 'closed' && !confirm('¿Cerrar la votación? Todos podrán abrir los sobres con los ganadores.')) return;
+  await rpc('admin_set_status', { new_status: b.dataset.s }); poll();
+});
+
+$('login').onsubmit = async e => {
+  e.preventDefault(); pw = $('pw').value;
+  const { error } = await rpc('admin_results');
+  if (error) return $('err').textContent = 'Contraseña incorrecta';
+  sessionStorage.setItem('pw', pw);
+  $('login').classList.add('hidden'); $('panel').classList.remove('hidden');
+  const url = location.href.replace(/admin\.html.*$/, '');
+  $('link').textContent = $('link').href = url; new QRCode($('qr'), { text: url, width: 160, height: 160 });
+  await loadData(); setInterval(poll, 3000);
+};
+if (sessionStorage.getItem('pw')) { $('pw').value = sessionStorage.getItem('pw'); $('login').requestSubmit(); }
+</script>
+</body>
+</html>
