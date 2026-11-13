@@ -44,6 +44,16 @@ input,textarea{border:1px solid #cbd5e1;border-radius:.75rem;padding:.5rem .75re
       <div id="live" class="space-y-5"></div>
     </div>
 
+    <div id="final" class="hidden bg-white rounded-3xl shadow p-6">
+      <h2 class="font-extrabold mb-2">🏆 Resultados finales</h2>
+      <pre id="finaltext" class="whitespace-pre-wrap text-sm bg-slate-50 rounded-xl p-3 font-sans"></pre>
+      <div class="flex gap-2 mt-3 flex-wrap">
+        <button id="share" class="btn bg-indigo-600 text-white">Compartir</button>
+        <button id="copy" class="btn bg-slate-200">Copiar texto</button>
+      </div>
+      <p id="shared" class="text-xs text-emerald-600 mt-2 min-h-4"></p>
+    </div>
+
     <!-- Equipos -->
     <div class="bg-white rounded-3xl shadow p-6">
       <h2 class="font-extrabold mb-1">Equipos <span id="nteams" class="text-slate-400 font-normal"></span></h2>
@@ -93,6 +103,16 @@ async function poll() {
   $('status').textContent = LABEL[s.data.status];
   const v = Object.fromEntries(data.map(r => [r.category_id + '_' + r.team_id, Number(r.votes)]));
   $('total').textContent = data.reduce((a, r) => a + Number(r.votes), 0) + ' votos';
+  const closed = s.data.status === 'closed';
+  $('final').classList.toggle('hidden', !closed);
+  if (closed) {
+    const url = location.href.replace(/admin\.html.*$/, '');
+    $('finaltext').textContent = '🏆 Los Premios — Resultados\n\n' + cats.map(c => {
+      const l = teams.map(n => ({ ...n, v: v[c.id + '_' + n.id] || 0 })), max = Math.max(0, ...l.map(n => n.v));
+      const w = max ? l.filter(n => n.v === max).map(n => n.name).join(' / ') : 'Sin votos';
+      return `${c.name}\n🥇 ${w}${max ? ` (${max} ${max === 1 ? 'voto' : 'votos'})` : ''}`;
+    }).join('\n\n') + `\n\nAbrí los sobres: ${url}`;
+  }
   $('live').innerHTML = cats.map(c => {
     const l = teams.map(n => ({ ...n, v: v[c.id + '_' + n.id] || 0 })).sort((a, b) => b.v - a.v);
     const t = l.reduce((a, n) => a + n.v, 0);
@@ -142,6 +162,13 @@ $('bulkbtn').onclick = async () => {
     await rpc('admin_upsert', { tbl: 'teams', payload: { name, members, description, image_url } });
   }
   $('bulk').value = ''; await loadData();
+};
+const flash = t => { $('shared').textContent = t; setTimeout(() => $('shared').textContent = '', 2500); };
+$('copy').onclick = async () => { try { await navigator.clipboard.writeText($('finaltext').textContent); flash('¡Copiado! Pegalo donde quieras.'); } catch { flash('No se pudo copiar, seleccioná el texto a mano.'); } };
+$('share').onclick = async () => {
+  const text = $('finaltext').textContent;
+  if (navigator.share) { try { await navigator.share({ title: 'Los Premios', text }); } catch {} }
+  else $('copy').onclick();
 };
 document.querySelectorAll('.st').forEach(b => b.onclick = async () => {
   if (b.dataset.s === 'closed' && !confirm('¿Cerrar la votación? Todos podrán abrir los sobres con los ganadores.')) return;
